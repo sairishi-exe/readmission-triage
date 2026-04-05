@@ -38,9 +38,3 @@ def add_med_change_count(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def group_icd9(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    TODO: Group raw ICD-9 codes in diag_1/2/3 into ~20 CCS clinical categories.
-    Placeholder for now — baseline uses raw codes first.
-    """
-    return df

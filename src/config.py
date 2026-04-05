@@ -108,7 +108,6 @@ EDA_DROP = [
 ENGINEERED_NUMERIC = [
     "utilization_index",
     "med_change_count",
-    # TODO: Add icd9 groupings here as an engineered feature
 ]
 
 # Layer 3: Model feature set (auto-derived from Layer 1 and Layer 2)

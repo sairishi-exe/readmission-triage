@@ -1,0 +1,38 @@
+# XGBoost Hyperparameter Configurations
+
+# Each config set is injected before runtime via experiment.ipynb
+# scale_pos_weight is computed dynamically: neg_count / pos_count
+baseline_params:
+  objective: "binary:logistic"
+  eval_metric: "aucpr"
+  enable_categorical: true
+  learning_rate: 0.3
+  max_depth: 6
+  min_child_weight: 1
+  max_delta_step: 0
+  subsample: 1.0
+  colsample_bytree: 1.0
+  reg_alpha: 0
+  reg_lambda: 1
+  n_estimators: 500
+  early_stopping_rounds: 50
+  random_state: 42
+
+tuned_v1:
+  objective: "binary:logistic"
+  eval_metric: "aucpr"
+  enable_categorical: true
+  learning_rate: 0.05
+  max_depth: 4
+  min_child_weight: 5
+  max_delta_step: 1
+  subsample: 0.8
+  colsample_bytree: 0.8
+  reg_alpha: 0
+  reg_lambda: 1
+  n_estimators: 1000
+  early_stopping_rounds: 50
+  random_state: 42
+# Add more config sets here as experiments progress
+# optuna_best:
+#   ...
