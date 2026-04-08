@@ -8,3 +8,5 @@ shap
 seaborn
 ipykernel
 pyyaml
+imblearn
+optuna

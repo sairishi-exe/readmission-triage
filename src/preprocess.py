@@ -22,8 +22,3 @@ def clean_data(df):
         df[col] = df[col].astype("category")
 
     return df
-
-def count_repeated_encounters(df):
-    df["encounter_count"] = df.groupby("patient_nbr")["encounter_id"].transform("count")
-
-    return df
