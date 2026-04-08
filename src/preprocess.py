@@ -4,7 +4,7 @@ import pandas as pd
 from .config import NONE_IS_VALID_COLS, ALL_CATEGORICAL
 
 
-def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+def clean_data(df):
     """
     Domain-specific NaN handling:
       - A1Cresult, max_glu_serum: NaN -> "None" (test not ordered, not missing)
@@ -16,11 +16,14 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     for col in NONE_IS_VALID_COLS:
-        if col in df.columns:
-            df[col] = df[col].fillna("None")
+        df[col] = df[col].fillna("None")
 
     for col in ALL_CATEGORICAL:
-        if col in df.columns:
-            df[col] = df[col].astype("category")
+        df[col] = df[col].astype("category")
+
+    return df
+
+def count_repeated_encounters(df):
+    df["encounter_count"] = df.groupby("patient_nbr")["encounter_id"].transform("count")
 
     return df

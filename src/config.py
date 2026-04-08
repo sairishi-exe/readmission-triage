@@ -2,13 +2,13 @@
 Configuration for readmission triage model.
 Single source of truth for feature definitions and settings.
 
-Layer 1 (ALL_*): Raw dataset schema — never changes unless the CSV changes.
+Section 1 (ALL_*): Raw dataset schema — never changes unless the CSV changes.
                  EDA functions use these to see everything.
 
-Layer 2 (EDA_DROP): Features to exclude based on EDA findings.
+Section (EDA_DROP): Features to exclude based on EDA findings.
                     Add columns here with a comment explaining why.
 
-Layer 3 (NUMERIC_COLS, CATEGORICAL_COLS, FEATURE_COLS):
+Section 3 (NUMERIC_COLS, CATEGORICAL_COLS, FEATURE_COLS):
                     What the model actually trains on.
                     Derived automatically from Layer 1 - Layer 2.
 """
@@ -20,13 +20,12 @@ RAW_DATA_PATH = "data/raw/diabetic_data.csv"
 LABEL_COL = "readmitted"
 
 # Columns to drop before EDA, we don't need these at all for the model.
-# Since they cause leakage and can cause xgboost memorize the data.
 DROP_COLS = [
     "encounter_id",
     "patient_nbr",
 ]
 
-# Layer 1: Initial feature set, we perform EDA on this and then decide what to keep/drop.
+# Section 1: Initial feature set, we perform EDA on this and then decide what to keep/drop.
 
 ALL_NUMERIC = [
     "time_in_hospital",
@@ -39,6 +38,7 @@ ALL_NUMERIC = [
     "number_diagnoses",
 ]
 
+# NOTE: This also includes ID columns like admission_type_id etc.
 ALL_CATEGORICAL = [
     "race",
     "gender",
@@ -85,32 +85,34 @@ ALL_FEATURES = ALL_NUMERIC + ALL_CATEGORICAL
 
 NONE_IS_VALID_COLS = ["max_glu_serum", "A1Cresult"]
 
-# Layer 2: This config is used after EDA, configure as you see fit.
+# Section 2: This config is used after EDA.
 
 EDA_DROP = [
-    "examide",                   # zero-variance
-    "citoglipton",               # zero-variance
-    "acetohexamide",             # near-zero-variance (1 non-"No" row)
-    "troglitazone",              # near-zero-variance (3 non-"No" rows)
-    "tolbutamide",               # near-zero-variance (23 non-"No" rows)
-    "tolazamide",                # near-zero-variance (39 non-"No" rows)
-    "miglitol",                  # near-zero-variance (38 non-"No" rows)
-    "chlorpropamide",            # near-zero-variance (86 non-"No" rows)
-    "glipizide-metformin",       # near-zero-variance (13 non-"No" rows)
-    "glimepiride-pioglitazone",  # near-zero-variance (1 non-"No" row)
-    "metformin-rosiglitazone",   # near-zero-variance (2 non-"No" rows)
-    "metformin-pioglitazone",    # near-zero-variance (1 non-"No" row)
-    "weight",                    # 97% missing, MI = 0, bivariate based on tiny samples
+    "examide",                   
+    "citoglipton",               
+    "acetohexamide",            
+    "troglitazone",              
+    "tolbutamide",               
+    "tolazamide",                
+    "miglitol",                  
+    "chlorpropamide",            
+    "glipizide-metformin",       
+    "glimepiride-pioglitazone",  
+    "metformin-rosiglitazone",   
+    "metformin-pioglitazone",    
+    "weight",                    
 ]
 
-# ── Engineered features (added in feature_engineering.py) ───────────
+# Engineered features (added in feature_engineering.py)
 
 ENGINEERED_NUMERIC = [
     "utilization_index",
-    "med_change_count",
+    "med_up_count",
+    "med_down_count",
+    "med_steady_count"
 ]
 
-# Layer 3: Model feature set (auto-derived from Layer 1 and Layer 2)
+# Section 3: Model feature set (auto-derived from Layer 1 and Layer 2)
 
 NUMERIC_COLS = [c for c in ALL_NUMERIC if c not in EDA_DROP] + ENGINEERED_NUMERIC
 CATEGORICAL_COLS = [c for c in ALL_CATEGORICAL if c not in EDA_DROP]

@@ -1,10 +1,11 @@
 import pandas as pd
 
 
-def add_utilization_index(df: pd.DataFrame) -> pd.DataFrame:
+def add_utilization_index(df):
     """
     Total prior healthcare visits = inpatient + outpatient + emergency.
-    Captures overall "frequent flyer" status in one feature.
+    Captures overall which patients are frequent visitors to the
+    healthcare facility.
     """
     df = df.copy()
     df["utilization_index"] = (
@@ -15,11 +16,10 @@ def add_utilization_index(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def add_med_change_count(df: pd.DataFrame) -> pd.DataFrame:
+def add_med_change_count(df):
     """
-    Count how many medications were changed during this encounter.
-    Any value other than "No" counts as a change.
-    More granular than the binary 'change' column — captures treatment intensity.
+    The point of this function is to assign a number that distinguishes
+    b/w types of medication changes occurring for each encounter
     """
     med_cols = [
         "metformin", "repaglinide", "nateglinide", "chlorpropamide",
@@ -31,10 +31,20 @@ def add_med_change_count(df: pd.DataFrame) -> pd.DataFrame:
         "metformin-pioglitazone",
     ]
     df = df.copy()
-    available = [c for c in med_cols if c in df.columns]
-    df["med_change_count"] = df[available].apply(
-        lambda row: (row.astype(str) != "No").sum(), axis=1
-    )
+    available_meds = [c for c in med_cols if c in df.columns]
+    med_df = df[available_meds]
+    df["med_up_count"] = (med_df == "Up").sum(axis=1)
+    df["med_down_count"] = (med_df == "Down").sum(axis=1)
+    df["med_steady_count"] = (med_df == "Steady").sum(axis=1)
+
+    return df
+
+def count_repeated_encounters(df):
+    """ 
+    Some patients identified by patient_nbr appear multiple times
+    in the dataset identified by encounter_id. This could be a signal.
+    """
+    df["encounter_count"] = df.groupby("patient_nbr")["encounter_id"].transform("count")
     return df
 
 

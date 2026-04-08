@@ -30,9 +30,9 @@ tuned_v1:
   colsample_bytree: 0.8
   reg_alpha: 0
   reg_lambda: 1
-  n_estimators: 1000
+  n_estimators: 500
   early_stopping_rounds: 50
   random_state: 42
-# Add more config sets here as experiments progress
+  
 # optuna_best:
 #   ...

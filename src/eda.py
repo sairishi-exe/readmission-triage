@@ -63,10 +63,9 @@ def feature_correlations(df, cols):
     import seaborn as sns
 
     corr = df[cols].corr()
-    plt.figure(figsize=(10, 8))
+    plt.figure(figsize=(8, 6))
     sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", square=True, cbar_kws={"shrink": .8})
     plt.title("Feature Correlation Heatmap")
-    plt.tight_layout()
     plt.show()
 
 
@@ -78,39 +77,23 @@ def mutual_info_ranking(df, random_state=42):
     MI = 0 means the feature tells you nothing. Higher = more useful.
     Unlike Pearson correlation, MI catches non-linear relationships too.
     """
-    # Why OrdinalEncoder instead of get_dummies:
-    #   get_dummies turns 'race' into 6 binary columns (race_Caucasian, race_AfricanAmerican, ...).
-    #   MI would then score each binary column separately, fragmenting the signal.
-    #   OrdinalEncoder keeps 'race' as ONE column (Caucasian=0, AfricanAmerican=1, ...)
-    #   so MI scores the full feature as a whole.
-
-    # Why is_categorical mask:
-    #   MI computes scores differently depending on the data type.
-    #   For numbers like time_in_hospital, it uses nearest-neighbor distances (KSG estimator).
-    #   For categories like race (even though encoded as 0,1,2), distances are meaningless —
-    #   it instead counts how often each category co-occurs with each target value.
-    #   The mask tells MI which method to use for which column.
-    
     from sklearn.feature_selection import mutual_info_classif
-    from sklearn.preprocessing import OrdinalEncoder
     from .config import ALL_FEATURES, LABEL_COL, ALL_CATEGORICAL
 
-    X = df[[c for c in ALL_FEATURES if c in df.columns]]
+    X = df[[c for c in ALL_FEATURES if c in list(df.columns)]].copy()
     y = (df[LABEL_COL] == "<30").astype(int)
 
-    cat_cols = [c for c in ALL_CATEGORICAL if c in X.columns]
+    # Boolean mask for mutual_info_classif:
+    # The is_discrete param uses an array of bools to tell apart which cols are categorical
+    is_categorical = (X.dtypes == "category").to_list()
 
-    X_enc = X.copy()
-    for c in cat_cols:
-        X_enc[c] = X_enc[c].astype(str) # OrdinalEncoder only works with strings for categorical columns
-    X_enc[cat_cols] = OrdinalEncoder().fit_transform(X_enc[cat_cols])
+    for col in X[ALL_CATEGORICAL].columns:
+        X[col] = X[col].cat.codes
 
-    is_categorical = [c in cat_cols for c in X_enc.columns]
-
-    mi = mutual_info_classif(X_enc, y, discrete_features=is_categorical, random_state=random_state)
-    scores = pd.Series(mi, index=X.columns).sort_values(ascending=False)
-    print(scores.round(4).to_string())
-    return scores
+    mi_scores = mutual_info_classif(X, y, discrete_features=is_categorical, random_state=random_state)
+    score_results = pd.Series(mi_scores, index=X.columns).sort_values(ascending=False)
+    print(score_results.round(4).to_string())
+    return score_results
 
 
 def bivariate_target(df, target_col, numeric_cols, categorical_cols):

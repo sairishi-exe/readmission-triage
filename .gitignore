@@ -6,3 +6,4 @@ __pycache__/
 notes/
 models/*.pkl
 models/*.joblib
+test.ipynb
