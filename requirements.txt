@@ -10,3 +10,4 @@ ipykernel
 pyyaml
 imblearn
 optuna
+shap
