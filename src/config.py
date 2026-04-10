@@ -83,8 +83,6 @@ ALL_CATEGORICAL = [
 
 ALL_FEATURES = ALL_NUMERIC + ALL_CATEGORICAL
 
-NONE_IS_VALID_COLS = ["max_glu_serum", "A1Cresult"]
-
 # Section 2: This config is used after EDA.
 
 EDA_DROP = [

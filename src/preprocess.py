@@ -4,19 +4,12 @@ import pandas as pd
 from .config import NONE_IS_VALID_COLS, ALL_CATEGORICAL
 
 
-def clean_data(df):
+def cast_category_types(df):
     """
-    Domain-specific NaN handling:
-      - A1Cresult, max_glu_serum: NaN -> "None" (test not ordered, not missing)
-      - Everything else: left as NaN for XGBoost sparsity-aware splitting
-
     Casts categorical columns to pandas 'category' dtype
     (required for XGBoost enable_categorical=True).
     """
     df = df.copy()
-
-    for col in NONE_IS_VALID_COLS:
-        df[col] = df[col].fillna("None")
 
     for col in ALL_CATEGORICAL:
         df[col] = df[col].astype("category")
@@ -24,6 +17,12 @@ def clean_data(df):
     return df
 
 def remove_expired_patients(df):
+    """
+    Removing patients that have expired or have been admitted to hospice.
+    patients that are expired cannot be readmitted and patients admitted to hospices
+    are usually receiving end-of-life treatments or are terminally-ill. In both of these 
+    cases patient is unlikely to be readmitted so this coudl cause leakage 
+    """
     expired_ids = [11, 13, 14, 19, 20, 21]
     df = df[df["discharge_disposition_id"].isin(expired_ids) == False]
     return df
