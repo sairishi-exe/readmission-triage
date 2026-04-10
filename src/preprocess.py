@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from .config import NONE_IS_VALID_COLS, ALL_CATEGORICAL
+from .config import ALL_CATEGORICAL
 
 
 def cast_category_types(df):
