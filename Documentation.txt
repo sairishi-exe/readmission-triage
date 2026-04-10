@@ -1,0 +1,28 @@
+The following is a list of what each txt submission is supposed to represent, including what the correct file extension is for each file. The location of the data csv file is also specified here.
+
+The dataset data, "diabetic_data.csv", should be placed under the file "data/raw".
+
+config.txt, eda.txt, feature_engineering.txt, preprocess.txt, and validation.txt, should have the extensions converted into "py", and placed into a folder called "src".
+
+hparam_config.txt should have the extension converted into "yaml", and placed into "src".
+
+experiment.txt should be changed into "experiment.ipynb" such that it is a notebook file, and placed outside the "src" folder and "data/raw" folder.
+
+requirements.txt does not need any changes, and can be placed outside the "src" folder and "data/raw" folder.
+
+Essentially, there should be a "data/raw" folder with files inside as specified above, and a "src" folder with files inside as specified above. Additionally, there should be experiment.ipynb and requirements.txt. outside of those two folders.
+
+config.py contains configurations that are used for EDA. Examples of this include having the SEED for reproducibility, a list called EDA_DROP that represents features we will be dropped, and things of that nature.
+
+eda.py contains methods that are related to testing done during EDA to see which methods to keep and which to drop. For example, we have methods like categorical_summary and numeric_summary where we obtain give us statistics or value counts for the feature depending on which type it is. One important method is mutual_info_ranking, which is used to calculate the Mutual Information between all of the features and our target variable.
+
+feature_engineering.py contains methods to add the following features to the dataset: utilization_index, med_up_count, med_down_count, and med_stead_count
+
+hparam_config.yaml contains two sets of parameters that are to be used in the xgboost classification models such as our baseline xgboost classification model. The one we use for our project is tuned_v1.
+
+preprocess.py contains two methods, cast_category_types(df) which casts categorical columns to pandas 'category' datatype so that we can use XGBoost on the dataframe. The second method is remove_expired_patients, which removes patients that have expired or have been admitted to hospice as they cannot be at risk for quick readmission.
+
+validation.py contains methods used to obtain evaluation metrics for a model such as AUCPR, AUROC, Precision, Recall, and Confusion statistics such as True Negatives, False Negatives, True Positives, and False Positives, where the inputs are the model, the feature data, the target data, and a threshold value. There is also the method cross_validate, where stratified k-fold cross validation is performed and the mean AUCPR and AUROC is calculated.
+
+experiment.ipynb is the main file where our source code is. 
+
