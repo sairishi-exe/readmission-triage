@@ -18,13 +18,13 @@ tuned_v1:
   early_stopping_rounds: 50
   enable_categorical: true
   eval_metric: aucpr
-  learning_rate: 0.05
-  max_delta_step: 1
-  max_depth: 4
-  min_child_weight: 5
+  learning_rate: 0.05 # reduced learning rate since model peaked too early
+  max_delta_step: 1   #
+  max_depth: 4        # reduced the depth to make each tree not overfit
+  min_child_weight: 5 
   n_estimators: 500
   objective: binary:logistic
   random_state: 42
   reg_alpha: 0
   reg_lambda: 1
-  subsample: 0.8
+  subsample: 0.8      # reducing the amount of features the model sees to prevent overfitting

@@ -22,3 +22,8 @@ def clean_data(df):
         df[col] = df[col].astype("category")
 
     return df
+
+def remove_expired_patients(df):
+    expired_ids = [11, 13, 14, 19, 20, 21]
+    df = df[df["discharge_disposition_id"].isin(expired_ids) == False]
+    return df
