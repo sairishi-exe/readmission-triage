@@ -1,16 +1,16 @@
 The following is a list of what each txt submission is supposed to represent, including what the correct file extension is for each file. The location of the data csv file is also specified here.
 
-The dataset data, "diabetic_data.csv", should be placed under the file "data/raw".
+The dataset data, "diabetic_data.csv", should be placed under the folder "raw". The folder "raw" is in the folder "data", so the file path for the dataset data should look like "data/raw/diabetic_data.csv"
 
-config.txt, eda.txt, feature_engineering.txt, preprocess.txt, and validation.txt, should have the extensions converted into "py", and placed into a folder called "src".
+config.txt, eda.txt, feature_engineering.txt, preprocess.txt, and validation.txt, should have the extensions converted into "py", and placed into a folder called "src". For example, the file path for config would be "src/config.py".
 
-hparam_config.txt should have the extension converted into "yaml", and placed into "src".
+hparam_config.txt should have the extension converted into "yaml", and placed into "src" as well such that the file path is src/hparam_config.yaml.
 
 experiment.txt should be changed into "experiment.ipynb" such that it is a notebook file, and placed outside the "src" folder and "data/raw" folder.
 
 requirements.txt does not need any changes, and can be placed outside the "src" folder and "data/raw" folder.
 
-Essentially, there should be a "data/raw" folder with files inside as specified above, and a "src" folder with files inside as specified above. Additionally, there should be experiment.ipynb and requirements.txt. outside of those two folders.
+Essentially, there should be a "data" folder with with a "raw" folder inside, which contains files inside as specified above, and a "src" folder with files inside as specified above. Additionally, there should be experiment.ipynb and requirements.txt. outside of those two folders.
 
 config.py contains configurations that are used for EDA. Examples of this include having the SEED for reproducibility, a list called EDA_DROP that represents features we will be dropped, and things of that nature.
 
