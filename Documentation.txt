@@ -26,3 +26,4 @@ validation.py contains methods used to obtain evaluation metrics for a model suc
 
 experiment.ipynb is the main file where our source code is. 
 
+NOTE: when you place the files that are meant to under the src/ folder, you need to create an "__init__.py" so that the folders can be used as a module within experiment.ipynb
