@@ -14,17 +14,17 @@ baseline_params:
   reg_lambda: 1
   subsample: 1.0
 tuned_v1:
-  colsample_bytree: 0.8
+  colsample_bytree: 0.8       # each tree sees 80% of features, prevents dominant feature reliance and overfitting
   early_stopping_rounds: 50
   enable_categorical: true
   eval_metric: aucpr
-  learning_rate: 0.05 # reduced learning rate since model peaked too early
-  max_delta_step: 1   #
-  max_depth: 4        # reduced the depth to make each tree not overfit
-  min_child_weight: 5 
+  learning_rate: 0.05          # slower learning beacause the model peaked too early
+  max_delta_step: 1            # caps per-tree updates. stabilizes training on imbalanced data
+  max_depth: 4                 # shallower trees to reduce overfitting on noisy features
+  min_child_weight: 5          # requires 5+ samples per leaf. avoids splits on tiny groups
   n_estimators: 500
   objective: binary:logistic
   random_state: 42
   reg_alpha: 0
   reg_lambda: 1
-  subsample: 0.8      # reducing the amount of features the model sees to prevent overfitting
+  subsample: 0.8               # each tree sees 80% of rows reduces overfitting via randomness
