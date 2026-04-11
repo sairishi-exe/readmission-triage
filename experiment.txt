@@ -1,0 +1,475 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# # Readmission Risk — Experiment Notebook
+
+# In[1]:
+
+
+# pip install -r requirements.txt
+
+
+# In[2]:
+
+
+# from src.config import print_experiment_config
+# print_experiment_config()
+
+
+# In[3]:
+
+
+import pandas as pd
+import numpy as np
+from src.config import RAW_DATA_PATH, LABEL_COL, ALL_NUMERIC, ALL_CATEGORICAL
+from src.preprocess import cast_category_types
+from src.eda import (
+    missing_data_stats, check_duplicates, target_distribution,
+    numeric_summary, categorical_summary,
+    feature_correlations, mutual_info_ranking, bivariate_target,
+)
+
+
+# ## Step 1 — Load & Clean
+
+# In[4]:
+
+
+df = pd.read_csv(RAW_DATA_PATH)
+df = df.replace("?", np.nan)
+print("=== After fill_nan() ===")
+missing_data_stats(df)
+
+
+# Some features like `weight`, `medical_speciality`, and `payer_code` seem to be extremely sparse/missing, will need to evaluate if they are useful for our model. Features like `A1Cresult` and `max_glu_serum` have a large amount of missingness, but still could be meaningful as the ordering of the test could signal something to do with readmission, we keep these. XGBoost will handle these two medical test features with its sparsity-aware handling.
+
+# In[5]:
+
+
+print(cast_category_types.__doc__)
+df = cast_category_types(df)
+
+
+# ## Step 2 — Exploratory Data Analysis
+
+# In[6]:
+
+
+# 2a. Structure
+
+# TODO: Handle repeated patient_nbrs
+check_duplicates(df, id_col="patient_nbr")
+
+
+# In[7]:
+
+
+# 2b. Target
+target_distribution(df)
+
+
+# In[8]:
+
+
+# 2c. Univariate — numeric
+print(numeric_summary.__doc__)
+print("\n")
+numeric_summary(df, ALL_NUMERIC)
+
+
+# **Numeric features — we should keep all of them** 
+# - No redundancy between them (correlation heatmap confirmed no high-correlated pairs). Since the Pearson's r showed no correlation b/w these numerical values we don't have to drop any one of them to explain the others. 
+# - No transformations needed — tree-based models don't care about skewness/outliers since they split on thresholds, not distances.
+# 
+# - **`number_emergency`, `number_outpatient`, `number_inpatient`**: Most patients have 0 for all three, the rare patients with high counts are the signal. These three together capture "healthcare utilization history" and are strong candidates for a combined engineered feature.
+# - **`number_inpatient`**: Strongest single MI predictor (0.0112). Prior hospitalization is the clearest readmission signal.
+# - **`time_in_hospital`**: Captures current encounter severity. Longer stays suggest sicker patients.
+# - **`num_medications`**: Reflects treatment complexity. Most patients are on 10–20 meds, which is typical for a diabetic population.
+# - **`num_lab_procedures`**: Most evenly distributed feature. Describes diagnostic intensity during the stay.
+# - **`num_procedures`**: Most patients had 0–2 procedures. Low MI individually but no reason to drop.
+# - **`number_diagnoses`**: Measures comorbidity burden, more diagnoses = sicker patient. Ranked #3 in MI (0.0083).
+# 
+# We believe we can keep these features and tweak regularization params to ensure we are not overfitting on noise. 
+
+# In[9]:
+
+
+# 2d. Univariate — categorical
+print(categorical_summary.__doc__)
+categorical_summary(df, ALL_CATEGORICAL)
+
+
+# **Findings from Univariate Categorical Features**
+# 
+# - **Zero-variance (confirmed drop):** For features `examide` and `citoglipton`every single row is "No." No information at all so we add to `EDA_DROP`
+# 
+# - **Near-zero-variance (drop these as well):** These medications are 99.9%+ "No" with negligible non-"No" counts:
+# `acetohexamide`, `troglitazone`, `glimepiride-pioglitazone`, `metformin-rosiglitazone`, `metformin-pioglitazone`, `glipizide-metformin`, `tolbutamide`, `tolazamide`, `miglitol`, `chlorpropamide`. Add to `EDA_DROP`
+# 
+# - **Medications with enough variation to be useful:**
+# `insulin`: The standout — 47,383 "No", 30,849 "Steady", 12,218 "Down", 11,316 "Up." Nearly half the patients are on insulin, and changes are common. This has the most informative distribution of any medication. The remaining useful meds are:
+# `metformin`, `glipizide`, `glyburide`, `pioglitazone`, `rosiglitazone`, `glimepiride`.
+# 
+# - **Binary treatment flags:**
+# `change`: roughly 50/50 split. Whether any medication was changed during the stay — well-balanced and could be informative.
+# `diabetesMed`: approx 77% of patients are on diabetes medication, which makes sense for a diabetic population.
+# 
+# - **ID-encoded columns:**
+# `admission_type_id` (8 unique): Over half are code 1 (emergency). Useful — emergency vs elective admissions likely have different readmission patterns. Keep this for now.
+# `discharge_disposition_id` (26 unique): ~60% discharged to home. Where a patient goes after discharge (home vs rehab vs skilled nursing) is clinically one of the strongest readmission predictors. Keep this for now.
+# `admission_source_id` (17 unique): ~56% are code 7 (ER referral). Referral source can indicate severity — ER arrivals vs physician referrals vs transfers have different risk profiles. Keep but some rare codes (<10 obs) may just be noise.
+# 
+# - **High-cardinality columns:**
+# `diag_1/2/3` (700+ unique each): Raw ICD-9 codes. The top codes map to recognizable conditions — heart failure, coronary artery disease, pneumonia, chest pain. But most codes appear few times, so the model won't have enough examples to learn. Grouping into ~20 clinical categories (e.g. all 250.* codes into "diabetes", all 428.* into "heart failure") could help because [XGBoost can't extrapolate to codes it hasn't seen.](https://towardsdatascience.com/why-xgboost-cant-solve-all-your-problems-b5003a62d12a/) 
+# If the training set has 428 but the test set has 428.1, the model treats them as completely unrelated. Grouping would let the model learn "heart failure patients get readmitted" rather than "ICD 428 patients get readmitted." Something we need to think about.
+# `medical_specialty` (72 unique, ~49% NaN): The top specialties make sense — internal medicine, emergency/trauma, family practice, cardiology. Around 40 specialties have fewer than 50 patients, which is probably too few for the model to learn meaningful patterns from. Grouping these rare specialties into "Other" might reduce noise. The large NaN proportion isn't really a problem, XGBoost handles missing values natively, and the fact that specialty wasn't recorded could itself be a signal (e.g. less specialized care).
+# 
+# - **Lab test flags:**
+# `max_glu_serum` (~5% tested): Very sparse. When a glucose serum test is ordered, it usually indicates concern about glycemic control. The "NaN" category (test not ordered) is the dominant signal here — the decision to test matters more than the result.
+# `A1Cresult` (~17% tested): More coverage than glucose serum. A1C directly measures long-term blood sugar control. Elevated A1C (>7, >8) suggests poorly managed diabetes, which is clinically linked to complications and readmission. Again, "NaN" (test not ordered) is itself informative.
+# 
+# 
+
+# **Summary of Features and their Importance for Univariate Tests So Far (Numerical + Categorical)**
+# 
+# **Definitely keep:**
+# `number_inpatient`, `number_emergency`, `number_outpatient`, `number_diagnoses`, `time_in_hospital`, `num_medications`, `num_procedures`, `num_lab_procedures`, `discharge_disposition_id`, `admission_type_id`, `admission_source_id`, `diag_1`, `diag_2`, `diag_3`, `insulin`, `age`, `A1Cresult`, `max_glu_serum`, `change`, `diabetesMed`
+# 
+# **Maybe keep:**
+# `medical_specialty`, `metformin`, `glipizide`, `glyburide`, `pioglitazone`, `rosiglitazone`, `glimepiride`, `payer_code`, `race`, `gender`, `weight`, `repaglinide`, `nateglinide`, `glyburide-metformin`, `acarbose`
+# 
+# **Definitely remove:**
+# `examide`, `citoglipton`, `acetohexamide`, `troglitazone`, `tolbutamide`, `tolazamide`, `miglitol`, `chlorpropamide`, `glipizide-metformin`, `glimepiride-pioglitazone`, `metformin-rosiglitazone`, `metformin-pioglitazone`
+
+# In[10]:
+
+
+# 2e. Bivariate — features vs target (before binarization)
+print(bivariate_target.__doc__)
+bivariate_target(df, LABEL_COL, ALL_NUMERIC, ALL_CATEGORICAL)
+
+
+# In[11]:
+
+
+# 2f. Feature redundancy — numeric Pearson
+feature_correlations(df, ALL_NUMERIC)
+
+
+# **What Does The Heatmap Tell Us?**
+# 
+# No pair exceeds r = 0.47, so no redundancy — each feature captures something different. The overall weak correlations also suggest the relationships in this data aren't linear, which is another reason we're going with XGBoost over something like logistic regression.
+
+# In[12]:
+
+
+# 2g. Mutual Information
+print(mutual_info_ranking.__doc__)
+mi_scores = mutual_info_ranking(df)
+
+
+# Bivariate and MI results mostly confirm what we saw in the univariate analysis.
+# 
+# The utilization features dominate — `number_inpatient` averages 1.22 for readmitted vs 0.38 for non-readmitted, and `number_emergency` shows a similar 3x gap. These are the top MI features too. The rest of the numerics show smaller but consistent separation across target classes so we're keeping all 8.
+# 
+# For categoricals, `discharge_disposition_id` stands out with some codes hitting 27-37% readmission vs 9% for discharged-to-home. `insulin` is the only medication with both a real bivariate spread (13.9% Down vs 10.0% No) and nonzero MI. `age` has a non-obvious pattern where [20-30) actually has the highest readmission rate at 14.2%. `A1Cresult` and `max_glu_serum` show subtle signal — interestingly "None" (test not ordered) has a higher rate than normal results for A1C, so the decision to test itself seems to matter.
+# 
+# The "maybe keep" medications (`metformin`, `glipizide`, `glyburide`, etc.) all individually round to MI = 0.0000 but show some bivariate spread when doses change. Keeping them for now since they could feed a combined `med_change_count` feature later. `race` and `gender` show basically no separation but we'll keep them for fairness analysis. `medical_specialty` has wide variation but a lot of it is noise from tiny samples (Resident = 50% readmission rate but only 2 patients). Still worth keeping since the top specialties have enough volume.
+# 
+# Moving `weight` to definitely remove — 97% missing, MI = 0, and the bivariate rates are based on samples so small they're meaningless (e.g. [0-25) shows 16.7% but that's 48 patients).
+# 
+# The near-zero-variance medications we flagged are all confirmed at MI = 0.0000 with bivariate rates identical to baseline or based on single-digit samples. Adding all of them plus `weight` to `EDA_DROP`.
+
+# **Final Feature Decisions After Full EDA (Univariate + Bivariate + MI)**
+# 
+# **Definitely keep:**
+# `number_inpatient`, `number_emergency`, `number_outpatient`, `number_diagnoses`, `time_in_hospital`, `num_medications`, `num_procedures`, `num_lab_procedures`, `discharge_disposition_id`, `admission_type_id`, `admission_source_id`, `diag_1`, `diag_2`, `diag_3`, `insulin`, `age`, `A1Cresult`, `max_glu_serum`, `change`, `diabetesMed`
+# 
+# **Maybe keep (low individual signal, but no cost to include):**
+# `medical_specialty`, `metformin`, `glipizide`, `glyburide`, `pioglitazone`, `rosiglitazone`, `glimepiride`, `payer_code`, `race`, `gender`, `repaglinide`, `nateglinide`, `glyburide-metformin`, `acarbose`
+# 
+# **Definitely remove (add to `EDA_DROP`):**
+# `examide`, `citoglipton` — zero-variance
+# `acetohexamide`, `troglitazone`, `tolbutamide`, `tolazamide`, `miglitol`, `chlorpropamide`, `glipizide-metformin`, `glimepiride-pioglitazone`, `metformin-rosiglitazone`, `metformin-pioglitazone` — near-zero-variance, MI = 0,`weight` — 97% missing, MI = 0, bivariate rates based on samples too small to be useful.
+
+# ## Step 3 - Feature Selection & Engineering
+
+# In[13]:
+
+
+from src.config import EDA_DROP, DROP_COLS
+from src.feature_engineering import add_utilization_index, add_med_change_count, count_repeated_encounters
+from src.preprocess import remove_expired_patients
+
+# Doing ID-related feature engineering here before we drop these cols
+df = count_repeated_encounters(df) # uses patient_nbr and encounter_id
+
+# Removing rows where discharge_disposition_id indicates patient has expired
+# They won't be readmitted hence leaky.
+df = remove_expired_patients(df)
+
+# Feature selection — drop IDs and EDA-flagged columns
+df = df.drop(columns=[c for c in DROP_COLS + EDA_DROP if c in df.columns])
+print(f"Dropped {len(DROP_COLS)} ID cols + {len(EDA_DROP)} EDA cols : {df.shape[1]} columns remaining")
+
+# Feature engineering
+df = add_utilization_index(df)
+print(f"utilization_index: mean={df['utilization_index'].mean():.2f}, max={df['utilization_index'].max()}")
+
+df = add_med_change_count(df)
+print(f"med_up_count: mean={df['med_up_count'].mean():.2f}, max={df['med_up_count'].max()}")
+print(f"med_down_count: mean={df['med_down_count'].mean():.2f}, max={df['med_down_count'].max()}")
+print(f"med_steady_count: mean={df['med_steady_count'].mean():.2f}, max={df['med_steady_count'].max()}")
+
+
+# ## Step 4 - Train / Validation / Test Split
+
+# In[14]:
+
+
+from src.config import FEATURE_COLS, LABEL_COL, NUMERIC_COLS, CATEGORICAL_COLS, RANDOM_SEED
+from sklearn.model_selection import train_test_split
+
+y = (df[LABEL_COL] == "<30").astype(int)
+X = df[FEATURE_COLS]
+
+X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.30, random_state=RANDOM_SEED, stratify=y)
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.50, random_state=RANDOM_SEED, stratify=y_temp)
+
+print(f"Train: {X_train.shape[0]:,} ({y_train.mean():.1%} positive)")
+print(f"Val:   {X_val.shape[0]:,} ({y_val.mean():.1%} positive)")
+print(f"Test:  {X_test.shape[0]:,} ({y_test.mean():.1%} positive)")
+
+
+# ## Step 5 - Baseline XGBoost
+
+# **NOTE:**
+# Make sure OpenMP is installed.
+# 
+# run:
+# brew install libomp (for MacOS only)
+
+# In[15]:
+
+
+import yaml
+import xgboost as xgb
+
+with open("src/hparam_config.yaml", "r") as f:
+    hparam_config = yaml.safe_load(f)
+
+# Inject hyperparameter config here 
+params = hparam_config["tuned_v1"]
+
+neg = (y_train == 0).sum()
+pos = (y_train == 1).sum()
+
+# NOTE: we are only testing for two classes here. 
+# <30 = 1, rest = 0.
+model = xgb.XGBClassifier(
+  **params,
+  scale_pos_weight=neg / pos,
+)
+
+model.fit(
+    X_train, y_train,
+    eval_set=[(X_val, y_val)],
+    verbose=1, # this parameter prints progress after every train-eval loop
+)
+
+
+# ## Step 6 - Baseline Evaluation
+
+# In[16]:
+
+
+from src.validation import evaluate_model
+evaluate_model(model, X_val, y_val)
+
+
+# ## Step 7 - Cross-Validation
+# 
+# Verify the baseline is stable across different data splits.
+# If the AUCPR is consistent across folds, we can trust the number and move on to resampling.
+
+# In[17]:
+
+
+from src.validation import cross_validate
+
+X_cv = pd.concat([X_train, X_val])
+y_cv = pd.concat([y_train, y_val])
+
+cross_validate(X_cv, y_cv, params)
+
+
+# ## Step 8 - Resampling w/ SMOTENC
+
+# In[18]:
+
+
+from imblearn.over_sampling import SMOTENC
+from src.config import CATEGORICAL_COLS, RANDOM_SEED
+
+cat_indices = [i for i, col in enumerate(X_train.columns) if col in CATEGORICAL_COLS]
+
+smotenc = SMOTENC(categorical_features=cat_indices, random_state=42)
+X_train_res, y_train_res = smotenc.fit_resample(X_train, y_train)
+
+
+# In[19]:
+
+
+# Training on new resampled X_train_res and y_train_res
+# <30 = 1, rest = 0.
+model = xgb.XGBClassifier(
+  **params,
+  # scale_pos_weight=neg / pos, NOTE: since we are resampling we don't use 
+  # this parameter anymore
+)
+
+model.fit(
+    X_train_res, y_train_res,
+    eval_set=[(X_val, y_val)],
+    verbose=1, # this parameter prints progress after every train-eval loop
+)
+
+
+# In[20]:
+
+
+from src.validation import evaluate_model
+evaluate_model(model, X_val, y_val)
+
+
+# **Decisions and Findings from Step 8**
+# 
+# - We used SMOTENC since this is the resampling technique that has in-built functionality to handle categorical values. The reason we are probably seeing our scores decline especially in the precision, recall and AUCPR metrics is due to the new synthetic noisy data introduced into the dataset. Other SMOTE (eg. SMOTEENN and KMeansSMOTE) techniques require a significant presence of numerical features which we lack in our dataset.
+# 
+# - We also tried to utilize a hybrid method where SMOTEENN utilizes SMOTENC as its SMOTE of choice (by passing the `smote=smotenc` paramater for the SMOTEENN class) while also using Edited Nearest Neighbors for under-sampling/de-noising. An issue arose where the SMOTEENN function required explicit handling of `NaN` values through imputation (We left `NaN` values to leverage XGBoost's sparsity aware handling).
+# 
+# - Now, since our dataset possesses a large amount of categorical feature one imputation strategy we looked into was KMeansImputation from scikit-learn. But we anticipated another potential issue. KMeansImputation requires for our features to be strongly related, which as demonstrated by the Mutual Information scores and the Pearson's r, isn't present in our dataset. The XGBoost model works because it leverages the diluted signal across many features using many sequential weak learners.
+# 
+# **Decision:**
+# 
+# The point of reporting this section is to show that we tried, but utimately this endeavour seemed to prove fruitless. The `scale_pos_weight` hyperparameter does a decent enough job of penalizing the misclassification of positive values. We stick to using this and disregard the SMOTENC results.
+
+# 
+
+# ## Step 9 - Hyperparameter Tuning w/ Optuna
+
+# In[21]:
+
+
+import optuna
+from sklearn.metrics import average_precision_score
+
+def objective(trial):
+    neg = (y_train == 0).sum()
+    pos = (y_train == 1).sum()
+
+    params = {
+        "objective": "binary:logistic",
+        "eval_metric": "aucpr",
+        "enable_categorical": True,
+        "random_state": RANDOM_SEED,
+        "scale_pos_weight": neg / pos,
+        "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3),
+        "max_depth": trial.suggest_int("max_depth", 3, 8),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        "max_delta_step": trial.suggest_int("max_delta_step", 0, 5),
+        "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+        "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
+        "reg_alpha": trial.suggest_float("reg_alpha", 0, 6.0),
+        "reg_lambda": trial.suggest_float("reg_lambda", 0, 6.0),
+        "n_estimators": 500,
+        "early_stopping_rounds": 50,
+    }
+
+    model = xgb.XGBClassifier(**params)
+    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=0)
+
+    y_proba = model.predict_proba(X_val)[:, 1]
+    return average_precision_score(y_val, y_proba)
+
+study = optuna.create_study(
+    direction="maximize",
+    sampler=optuna.samplers.TPESampler(seed=54) 
+    )
+study.optimize(objective, n_trials=100)
+
+print(f"Best AUCPR: {study.best_value:.4f}")
+print(f"Best params: {study.best_params}")
+
+
+# In[22]:
+
+
+# Retraining w/ Optuna hyperparameters
+
+neg = (y_train == 0).sum()
+pos = (y_train == 1).sum()
+
+model = xgb.XGBClassifier(
+    **study.best_params,
+    objective="binary:logistic",
+    eval_metric="aucpr",
+    enable_categorical=True,
+    n_estimators=500,
+    early_stopping_rounds=50,
+    random_state=RANDOM_SEED,
+    scale_pos_weight=neg / pos,
+)
+model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=1)
+
+
+# ## Step 10 - Domain-Specific Threshold Tuning
+
+# - We use a slightly smaller threshold than 0.5 here.
+# 
+# - The reason for this is because we want to prioritize recall values
+# at the cost of precision. 
+# 
+# - For a medical dataset that hopes to catch patients at risk of readmission, this forms a **"better-safe-than-sorry"** approach
+# where we would prefer overshooting on the decision to run intervention
+# even if it means a few patients that weren't at risk were put through intervention.
+
+# In[23]:
+
+
+evaluate_model(model, X_test, y_test, threshold=0.47)
+
+
+# ## Step 11 - ROC Curve & Precision-Recall Curve Display
+
+# In[24]:
+
+
+from sklearn.metrics import RocCurveDisplay, PrecisionRecallDisplay
+import matplotlib.pyplot as plt
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+
+RocCurveDisplay.from_estimator(model, X_test, y_test, ax=ax1)
+ax1.set_title("ROC Curve")
+
+PrecisionRecallDisplay.from_estimator(model, X_test, y_test, ax=ax2)
+ax2.set_title("Precision-Recall Curve")
+
+plt.tight_layout()
+plt.show()
+
+
+# ## Step 12 - SHapley's Additive exPlanations - Explaining Feature Importance in Black-Box models
+
+# In[25]:
+
+
+import shap
+
+explainer = shap.TreeExplainer(model)
+shap_values = explainer.shap_values(X_test)
+
+shap.summary_plot(shap_values, X_test, plot_type="bar")  # global importance
+shap.summary_plot(shap_values, X_test)                    # detailed beeswarm
+
